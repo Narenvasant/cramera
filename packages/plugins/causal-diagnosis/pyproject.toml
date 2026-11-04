@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cramera-causal-diagnosis"
+version = "1.0.0"
+description = "Show a robot experiment's causal analysis next to its live run: the joint probability tree, the causal graph, why each failed run failed, and every run's NEEM."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Naren Vasantakumaar" }]
+dependencies = ["cramera==1.0.0", "cramera-protocol==1.0.0", "typing_extensions>=4.8"]
+classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
+
+[project.entry-points."cramera.plugins"]
+causal-diagnosis = "cramera_causal_diagnosis.plugin:CausalDiagnosisPlugin"
+
+[project.urls]
+Source = "https://github.com/AICOR-Solutions/cramera"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cramera_causal_diagnosis = ["web/*"]
