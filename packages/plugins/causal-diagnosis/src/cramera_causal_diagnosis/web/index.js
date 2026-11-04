@@ -250,7 +250,7 @@ export function graphView(graph) {
     if (!columns.has(column)) columns.set(column, []);
     columns.get(column).push(node);
   }
-  const width = 150;
+  const width = 200;
   const height = 46;
   const columnGap = 70;
   const rowGap = 26;
@@ -424,7 +424,7 @@ export function neemView(neem, videoUrl, replay) {
   const parameters = element('div', 'cd-conditions');
   for (const [name, value] of Object.entries(neem.parameters)) {
     const chip = element('span', 'cd-chip');
-    chip.append(element('b', '', name), element('span', '', ` ${typeof value === 'number' ? Number(value).toFixed(3) : value}`));
+    chip.append(element('b', '', name), element('span', '', ` ${typeof value === 'number' && !Number.isInteger(value) ? Number(value).toFixed(3) : value}`));
     parameters.append(chip);
   }
   view.append(parameters);
@@ -515,6 +515,17 @@ export const STYLES = `
 // %% the panels
 
 /**
+ * The panel each value of the page's `tab` parameter opens.
+ */
+export const TAB_PANELS = {
+  answers: PLUGIN,
+  tree: `${PLUGIN}-tree`,
+  graph: `${PLUGIN}-graph`,
+  diagnosis: `${PLUGIN}-diagnosis`,
+  neems: `${PLUGIN}-neems`,
+};
+
+/**
  * Reads an experiment's documents and keeps the five tabs up to date.
  */
 export class CausalDiagnosisTabs {
@@ -565,9 +576,11 @@ export class CausalDiagnosisTabs {
     this.context.panels.add(new SidePanel(`${PLUGIN}-graph`, 'Causal graph', this.panels.graph));
     this.context.panels.add(new SidePanel(`${PLUGIN}-diagnosis`, 'Diagnosis', this.panels.diagnosis));
     this.context.panels.add(new SidePanel(`${PLUGIN}-neems`, 'NEEMs', this.panels.neems));
+    const asked = TAB_PANELS[new URL(window.location.href).searchParams.get('tab')];
+    if (asked) this.context.panels.show(asked);
     const listed = await fetch(this.url('experiments'), { cache: 'no-store' }).then((response) => response.json());
-    const asked = new URL(window.location.href).searchParams.get('experiment');
-    this.experiment = asked ?? listed.experiments[0] ?? null;
+    const named = new URL(window.location.href).searchParams.get('experiment');
+    this.experiment = named ?? listed.experiments[0] ?? null;
     if (!this.experiment) {
       for (const panel of Object.values(this.panels)) panel.replaceChildren(element('p', 'cd-muted', 'No experiment has written its documents yet.'));
       return;

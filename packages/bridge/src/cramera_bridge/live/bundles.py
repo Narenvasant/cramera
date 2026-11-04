@@ -16,6 +16,7 @@ from typing_extensions import TYPE_CHECKING, Dict, List, Optional, Sequence
 from cramera_bridge.documents import DocumentFile
 from cramera_bridge.exceptions import EmptyRecording
 from cramera_bridge.export.world_models import ObjectFiles, WorldModels
+from cramera_bridge.geometry import NumericPose
 from cramera_bridge.live.perception_images import bundle_file
 from cramera_bridge.live.recorded_statecharts import RecordedStatecharts
 from cramera_bridge.live.recording import FrameRange, FrameTiming, RecordedFrame
@@ -85,7 +86,8 @@ The directory below ``meshes`` holding a recording's meshes.
 class WorldSignature:
     """
     The identity of what a live bundle shows: every body outside the free objects with
-    its parent, its connection type and how it is drawn, and the selected robot.
+    its parent, its connection type and how it is drawn, the selected robot, and which
+    free objects there are.
 
     Poses do not count.
     """
@@ -115,7 +117,8 @@ class WorldSignature:
             if self.selected_robot is None
             else RobotRoster.identifier(self.selected_robot)
         )
-        text = "|".join(entries) + f"|robot:{robot}"
+        object_keys = ",".join(sorted(str(ObjectKey.of(body)) for body in self.model.objects))
+        text = "|".join(entries) + f"|robot:{robot}|objects:{object_keys}"
         return hashlib.sha1(text.encode("utf-8")).hexdigest()[:SIGNATURE_LENGTH]
 
     @staticmethod
@@ -337,11 +340,20 @@ class LiveBundleWriter:
             models = WorldModels(model.world, staging, LIVE_MESH_DIRECTORY).write(
                 model.objects, selected_robot
             )
+            files = ObjectFiles(staging)
             scene = SceneDescription(
                 name=ReservedSceneName.LIVE,
                 format_version=CURRENT_VERSION,
                 models=models.models,
                 robot=models.robot,
+                objects=[
+                    files.describe(
+                        body,
+                        ObjectKey.of(body),
+                        NumericPose.of_entity(model.world, body).published(),
+                    )
+                    for body in model.objects
+                ],
                 missing_assets=models.missing_assets,
                 bundle_signature=signature,
                 world_bound=True,
