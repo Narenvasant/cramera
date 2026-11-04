@@ -314,13 +314,14 @@ function contextOf(info, fetch) {
   return { document, context: { bus, panels, query, api: new ViewerApi(fetch, BASE), view, info } };
 }
 
-test('registering fills the query slot, adds a tab per graph view and follows the shown scene', async () => {
+test('registering adds the question panel and one tab per graph view as tabs, and follows the shown scene', async () => {
   const requested = [];
   const answers = { [`api/plugins/${PluginName.QUESTIONS}/${QuestionsRoute.PRESETS}`]: CATALOG, [`api/plugins/${PluginName.QUESTIONS}/${QuestionsRoute.GRAPH}`]: { [GraphViewKey.NODES]: [] } };
   const { document, context } = contextOf({ [ViewerInfoKey.SERVING]: Serving.SERVER }, filesFetch(answers, requested));
   const panel = register(context);
-  assert.equal(context.query.occupant, PluginName.QUESTIONS);
-  assert.deepEqual(context.panels.identifiers(), Object.keys(VIEW_TITLES).map(graphPanelOf));
+  assert.equal(context.query.occupant, null);
+  assert.deepEqual(context.panels.identifiers(), [PluginName.QUESTIONS, ...Object.keys(VIEW_TITLES).map(graphPanelOf)]);
+  assert.ok(context.panels.tabbed(PluginName.QUESTIONS));
   assert.equal(document.head.children.length, 1);
   context.bus.publish(ViewerEvent.SCENE_LOADED, { name: 'cell' });
   await new Promise((resolve) => setTimeout(resolve, 0));

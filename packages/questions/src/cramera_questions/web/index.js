@@ -1,12 +1,11 @@
 /**
- * The questions plugin's browser module: fills the viewer's query slot with the
- * question panel and adds one tab per graph view. Where the plugin's routes do not
+ * The questions plugin's browser module: adds the question panel and one tab per graph
+ * view to the side panels. Where the plugin's routes do not
  * answer, as on a static site, both show the scene's recorded answers.
  */
 
 import { PluginName, Serving, ViewerEvent, ViewerInfoKey } from '../../protocol.js';
 import { SidePanel } from '../../panels/panel-host.js';
-import { SlotPanel } from '../../panels/query-slot.js';
 import { GraphPanel, VIEW_TITLES } from './graph-panel.js';
 import { QuestionsClient } from './questions-client.js';
 import { QuestionsPanel } from './questions-panel.js';
@@ -45,7 +44,7 @@ export function register(context) {
   const served = context.info?.[ViewerInfoKey.SERVING] !== Serving.STATIC;
   const sources = new AnswerSources(served ? new QuestionsClient(context.api) : null, new RecordedAnswersClient(context.api));
   const panel = new QuestionsPanel(document, context.bus);
-  context.query.fill(new SlotPanel(PluginName.QUESTIONS, PANEL_TITLE, panel.element, panel.status));
+  context.panels.add(new SidePanel(PluginName.QUESTIONS, PANEL_TITLE, panel.element));
   const graphs = Object.entries(VIEW_TITLES).map(([view, title]) => {
     const graph = new GraphPanel(document, view, context.bus);
     context.panels.add(new SidePanel(graphPanelOf(view), title, graph.element));

@@ -1,7 +1,8 @@
 /**
- * The question panel in the viewer's query slot: a box for queries in the entity query
- * language with its Run button, a box for questions in plain language, the question
- * read back in English, the scene's ready-made questions and the answer. With recorded
+ * The question panel in a side tab: whether the knowledge is ready, a box for queries
+ * in the entity query language with its Run button, a box for questions in plain
+ * language, the question read back in English, the scene's ready-made questions and
+ * the answer. With recorded
  * answers only the ready-made questions can be asked, and the boxes say why.
  */
 
@@ -154,7 +155,7 @@ export class QuestionsPanel {
       this.ask(question.value);
     });
     this.#question = { input: question, button: askButton };
-    box.append(bar, ask);
+    box.append(this.status, bar, ask);
     const body = document.createElement('div');
     body.className = 'console-body';
     this.#reading = document.createElement('p');
