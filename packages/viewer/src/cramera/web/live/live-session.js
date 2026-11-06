@@ -201,7 +201,8 @@ export class LiveSession {
 
   /**
    * Read the publisher's information; when the world's model changed, have the
-   * publisher bundle it unless it names its bundle already, and show that bundle.
+   * publisher bundle it unless it names its bundle already, and show that bundle. A
+   * publisher that connects again counts its states afresh.
    * @returns {Promise<void>} Settles once read or failed.
    */
   async pollInfo() {
@@ -212,7 +213,10 @@ export class LiveSession {
       this.info = null;
       return;
     }
-    if (!this.info) this.#bus.publish(ViewerEvent.LIVE_CONNECTED, info);
+    if (!this.info) {
+      this.#bus.publish(ViewerEvent.LIVE_CONNECTED, info);
+      this.#sequenceNumber = -1;
+    }
     this.info = info;
     const signature = info[LiveInfoKey.BUNDLE_SIGNATURE] ?? null;
     if (signature === this.#shownSignature) return;

@@ -1,7 +1,8 @@
 /**
- * The causal diagnosis tabs: an experiment's causal answers, its joint probability
- * tree, its causal graph, why each failed run failed, and every run's NEEM, read from
- * the documents the experiment writes while it runs.
+ * The causal diagnosis tabs: what an experiment's causal answers say about the run going
+ * on and in general, its joint probability tree, its causal graph, why each run came out
+ * the way it did, and every run's NEEM, read from the documents the experiment writes
+ * while it runs.
  */
 
 import { SidePanel } from '../../panels/panel-host.js';
@@ -83,28 +84,34 @@ export function heading(title, note) {
 
 /**
  * @param {Object} experiment The experiment document.
- * @returns {HTMLElement} The experiment, its data and every causal answer.
+ * @returns {HTMLElement} What the recorded attempts say in general: the data and every
+ *   causal answer with its takeaway.
  */
 export function experimentView(experiment) {
   const view = element('div', 'cd-view');
-  view.append(heading(experiment.title, experiment.summary));
   const dataset = experiment.dataset;
+  view.append(
+    heading(
+      `What ${dataset.attempts} recorded picks say in general`,
+      'Before this demo, Tracy tried the pick many times with different grips and clutters. A causal model fitted on those attempts answers the questions below.',
+    ),
+  );
   const stats = element('div', 'cd-stats');
   stats.append(
-    stat('Recorded attempts', dataset.attempts),
-    stat('Lifted', percent(dataset.successRate)),
-    stat('Neighbours per clutter', dataset.neighbourCount),
+    stat('Recorded picks', dataset.attempts),
+    stat('Carton came up', percent(dataset.successRate)),
+    stat('Cartons around the target', dataset.neighbourCount),
   );
   view.append(stats);
   for (const environment of dataset.environments) {
     const row = element('div', 'cd-row');
     row.append(
-      element('span', 'cd-label', `${environment.environment} (${environment.attempts})`),
+      element('span', 'cd-label', `in a ${environment.environment} (${environment.attempts} picks)`),
       bar(environment.successRate, 'var(--accent)'),
     );
     view.append(row);
   }
-  for (const question of experiment.questions) view.append(questionView(question));
+  for (const question of experiment.questions) view.append(questionView(question, dataset.attempts));
   return view;
 }
 
@@ -120,32 +127,39 @@ export function stat(label, value) {
 }
 
 /**
- * @param {Object} question One question with its answer.
- * @returns {HTMLElement} The question and, per region of its cause, the conditioned and
- *   the backdoor-adjusted answer.
+ * @param {Object} region A region of a cause.
+ * @returns {string} The region in words: its single value, or its description.
  */
-export function questionView(question) {
+export function regionLabel(region) {
+  return region.holds?.length === 1 ? String(region.holds[0]) : region.description;
+}
+
+/**
+ * @param {Object} question One question with its answer.
+ * @param {number} attempts How many recorded picks the answer rests on.
+ * @returns {HTMLElement} The question, its takeaway and, per value of its cause, how
+ *   often the carton came up when that value happened and when it is set.
+ */
+export function questionView(question, attempts) {
   const card = element('section', 'cd-card');
   card.append(element('div', 'cd-question', question.asked));
-  const adjusted = question.adjustedFor.length
-    ? `adjusted for ${question.adjustedFor.join(', ')}`
-    : 'no adjustment';
-  card.append(
-    element(
-      'p',
-      'cd-muted',
-      `${question.trainingExamples} attempts · ${adjusted} · largest shift from adjusting ${percent(question.largestShiftFromAdjusting)}`,
+  if (question.takeaway) card.append(element('p', 'cd-takeaway', question.takeaway));
+  const legend = element('div', 'cd-legend');
+  legend.append(swatch('var(--text-muted)', 'seen: how often it happened in the recorded picks'));
+  legend.append(
+    swatch(
+      'var(--accent)',
+      question.adjustedFor.length
+        ? 'causal: how often it happens when we set the cause, comparing like environments'
+        : 'causal: how often it happens when we set the cause',
     ),
   );
-  const legend = element('div', 'cd-legend');
-  legend.append(swatch('var(--text-muted)', 'conditioned P(effect | cause)'));
-  legend.append(swatch('var(--accent)', 'interventional P(effect | do(cause))'));
   card.append(legend);
   for (const region of question.regions) {
     const row = element('div', 'cd-region');
-    row.append(element('div', 'cd-label', region.description));
-    row.append(bar(region.conditioned, 'var(--text-muted)'));
-    row.append(bar(region.adjusted, 'var(--accent)'));
+    const label = element('div', 'cd-label');
+    label.append(element('b', '', regionLabel(region)), element('span', 'cd-faint', ` ${Math.round(region.share * attempts)} picks`));
+    row.append(label, bar(region.conditioned, 'var(--text-muted)'), bar(region.adjusted, 'var(--accent)'));
     card.append(row);
   }
   return card;
@@ -162,6 +176,97 @@ export function swatch(colour, text) {
   square.style.background = colour;
   entry.append(square, element('span', '', text));
   return entry;
+}
+
+// %% what the causal answers say about one run
+
+/**
+ * The colour of each likelihood the answers put a run's lift in.
+ */
+export const LIKELIHOOD_COLOURS = {
+  likely: 'var(--success)',
+  uncertain: 'var(--warning)',
+  unlikely: 'var(--danger)',
+};
+
+/**
+ * @param {Array<Object>} runs The runs' index.
+ * @param {string|null} selected The run shown.
+ * @param {function(string): void} select Shows a run.
+ * @returns {HTMLElement} One chip per run to pick the run shown.
+ */
+export function runChips(runs, selected, select) {
+  const chips = element('div', 'cd-conditions');
+  for (const run of runs) {
+    const state = run.state === 'running' ? 'cd-running' : run.lifted ? 'cd-ok' : 'cd-bad';
+    const chip = element('button', `cd-chip cd-run-chip ${run.run === selected ? 'cd-selected' : ''}`);
+    chip.type = 'button';
+    chip.append(element('span', `cd-dot ${state}`), element('span', '', run.run));
+    chip.addEventListener('click', () => select(run.run));
+    chips.append(chip);
+  }
+  return chips;
+}
+
+/**
+ * @param {Object|null} answers A run's answers document.
+ * @param {Array<Object>} runs The runs' index.
+ * @param {function(string): void} select Shows a run.
+ * @returns {HTMLElement} What the causal answers say about the run before the pick, and
+ *   once it is done, how the pick compares with it.
+ */
+export function runAnswersView(answers, runs, select) {
+  const view = element('div', 'cd-view cd-this-run');
+  if (!answers) {
+    view.append(heading('This run', 'No run has started yet.'));
+    return view;
+  }
+  const running = answers.state === 'running';
+  view.append(
+    heading(
+      `This run: ${answers.run}${running ? ' (Tracy is picking now…)' : ''}`,
+      'What the causal answers say about this very pick, from what it is given before the fingers close.',
+    ),
+  );
+  view.append(runChips(runs, answers.run, select));
+  const causes = answers.causes;
+  const given = element('div', 'cd-conditions');
+  for (const [name, value] of [
+    ['environment', causes.environment],
+    ['grip friction', causes.friction],
+    ['cartons right next to the target', causes.adjacentNeighbours],
+    ['cartons around it', causes.neighbours],
+  ]) {
+    const chip = element('span', 'cd-chip');
+    chip.append(element('b', '', name), element('span', '', ` ${value}`));
+    given.append(chip);
+  }
+  view.append(given);
+  const expectation = answers.expectation;
+  const expected = element('div', 'cd-banner cd-expectation');
+  expected.style.borderColor = LIKELIHOOD_COLOURS[expectation.likelihood] ?? 'var(--border-strong)';
+  expected.append(element('div', 'cd-banner-title', 'Expected before the pick'), element('div', '', expectation.reading));
+  view.append(expected);
+  if (answers.outcome) {
+    const outcome = element('div', answers.outcome.lifted ? 'cd-banner cd-success' : 'cd-banner cd-failure');
+    outcome.append(element('div', 'cd-banner-title', 'What the pick did'), element('div', '', answers.outcome.reading));
+    view.append(outcome);
+  }
+  for (const answer of answers.answers) {
+    const card = element('section', 'cd-card');
+    const title = element('div', 'cd-question');
+    title.append(element('span', '', answer.question ?? answer.cause));
+    card.append(title);
+    card.append(element('p', '', answer.reading));
+    if (answer.probability !== undefined && answer.probability !== null) {
+      const row = element('div', 'cd-row');
+      row.append(element('span', 'cd-label', `lift at ${answer.runValue}`), bar(answer.probability, LIKELIHOOD_COLOURS[answer.likelihood]));
+      card.append(row);
+    }
+    if (answer.evidence) card.append(element('p', 'cd-muted', answer.evidence));
+    view.append(card);
+  }
+  return view;
 }
 
 // %% the joint probability tree
@@ -340,8 +445,8 @@ export function graphView(graph) {
 /**
  * @param {Object|null} run The run's entry of the index.
  * @param {Object|null} diagnosis The run's diagnosis document.
- * @returns {HTMLElement} The verdict, the primary cause, the correction and every
- *   factor's interventional chance of the lift.
+ * @returns {HTMLElement} The verdict, the reasoning that leads to it step by step, and
+ *   every cause's chance of the lift as it was and at its best.
  */
 export function diagnosisView(run, diagnosis) {
   const view = element('div', 'cd-view');
@@ -349,39 +454,39 @@ export function diagnosisView(run, diagnosis) {
     view.append(heading('Diagnosis', 'No run has finished yet.'));
     return view;
   }
-  view.append(heading(`Diagnosis of ${run.run}`, `${run.environment} · friction ${Number(run.friction).toFixed(4)} · crowding ${run.crowding ?? '–'}`));
+  view.append(heading(`Why ${run.run} came out the way it did`, `in a ${run.environment} · grip friction ${run.friction} · ${run.crowding ?? '–'} cartons right next to the target`));
   if (!diagnosis) {
-    view.append(element('p', 'cd-muted', 'The run is still going.'));
+    view.append(element('p', 'cd-muted', 'Tracy is still picking; the diagnosis follows once the pick is done.'));
     return view;
   }
-  const banner = element('div', diagnosis.lifted ? 'cd-banner cd-success' : 'cd-banner cd-failure', diagnosis.verdict);
-  view.append(banner);
-  if (diagnosis.primaryCause) {
-    const card = element('section', 'cd-card');
-    card.append(element('div', 'cd-question', `Primary cause: ${diagnosis.primaryCause}`));
-    card.append(element('p', '', diagnosis.explanation));
-    card.append(element('p', 'cd-correction', `Correction: ${diagnosis.correction}`));
-    view.append(card);
+  view.append(element('div', diagnosis.lifted ? 'cd-banner cd-success' : 'cd-banner cd-failure', diagnosis.verdict));
+  const steps = element('ol', 'cd-steps');
+  for (const step of diagnosis.steps ?? []) {
+    const item = element('li', 'cd-step');
+    item.append(element('div', 'cd-step-title', step.title), element('p', '', step.text));
+    steps.append(item);
   }
-  view.append(element('h4', '', `Causes of the lift, adjusted for ${diagnosis.adjustedFor.join(', ')}`));
+  view.append(steps);
+  view.append(element('h4', '', 'Each cause: the chance of the lift as it was, and at its best value'));
   for (const factor of diagnosis.factors) {
     const card = element('section', 'cd-card');
-    card.append(element('div', 'cd-question', `${factor.factor}: ${factor.observed}`));
+    card.append(element('div', 'cd-question', factor.factor));
     const observed = element('div', 'cd-row');
-    observed.append(element('span', 'cd-label', 'P(lift | do(observed))'), bar(factor.probability_at_observed, liftColour(factor.probability_at_observed)));
+    observed.append(element('span', 'cd-label', `as it was: ${factor.observed}`), bar(factor.probability_at_observed, liftColour(factor.probability_at_observed)));
     const best = element('div', 'cd-row');
-    best.append(element('span', 'cd-label', `P(lift | do(${factor.best_region}))`), bar(factor.probability_at_best, liftColour(factor.probability_at_best)));
+    best.append(element('span', 'cd-label', `at best: ${factor.best_value}`), bar(factor.probability_at_best, liftColour(factor.probability_at_best)));
     card.append(observed, best);
     view.append(card);
   }
   if (diagnosis.disturbedNeighbours.length) {
-    view.append(element('h4', '', 'Neighbours the fingers shoved aside'));
+    view.append(element('h4', '', 'Cartons the fingers pushed aside'));
     for (const neighbour of diagnosis.disturbedNeighbours) {
+      const where = neighbour.side === 'along' ? 'in line with the closing fingers' : 'off to the side of the fingers';
       view.append(
         element(
           'p',
           'cd-muted',
-          `Neighbour ${neighbour.neighbour}, ${neighbour.side} the closing axis, moved ${(100 * neighbour.displacement).toFixed(1)} cm; a neighbour there is disturbed ${percent(neighbour.probabilityDisturbedOnThisSide)} of the time.`,
+          `Carton ${neighbour.neighbour}, ${where}, moved ${(100 * neighbour.displacement).toFixed(1)} cm. A carton standing there is pushed ${percent(neighbour.probabilityDisturbedOnThisSide)} of the time.`,
         ),
       );
     }
@@ -470,8 +575,8 @@ export const STYLES = `
 .cd-stat-value { font-size: 20px; font-weight: 600; color: var(--accent); }
 .cd-card { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .cd-question { font-weight: 600; }
-.cd-row, .cd-region { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 8px; align-items: center; }
-.cd-region { grid-template-columns: minmax(90px, 30%) 1fr 1fr; }
+.cd-row, .cd-region { display: grid; grid-template-columns: minmax(110px, 40%) 1fr; gap: 8px; align-items: center; }
+.cd-region { grid-template-columns: minmax(110px, 30%) 1fr 1fr; }
 .cd-label { color: var(--text-muted); font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 .cd-bar { display: flex; align-items: center; gap: 6px; }
 .cd-bar-track { flex: 1; height: 8px; background: var(--surface-sunken); border-radius: 4px; overflow: hidden; }
@@ -495,6 +600,20 @@ export const STYLES = `
 .cd-success { background: rgb(75 211 138 / 0.15); color: var(--success); border: 1px solid var(--success); }
 .cd-failure { background: rgb(255 107 139 / 0.12); color: var(--danger); border: 1px solid var(--danger); }
 .cd-correction { color: var(--accent); font-weight: 600; margin: 0; }
+.cd-takeaway { margin: 0; font-size: 13px; line-height: 1.45; }
+.cd-faint { color: var(--text-faint); font-family: var(--font); }
+.cd-this-run { border-bottom: 1px solid var(--border-strong); }
+.cd-banner-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 3px; }
+.cd-expectation { background: var(--surface-raised); color: var(--text); border: 1px solid var(--border-strong); font-weight: 500; }
+.cd-banner { line-height: 1.45; }
+.cd-card p { margin: 0; line-height: 1.45; }
+.cd-steps { margin: 0; padding: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
+.cd-step { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
+.cd-step::marker { color: var(--accent); font-weight: 600; }
+.cd-step p { margin: 2px 0 0; line-height: 1.45; }
+.cd-step-title { font-weight: 600; }
+.cd-run-chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font: inherit; font-size: 11px; }
+.cd-run-chip.cd-selected { border-color: var(--accent); color: var(--accent); }
 .cd-failure-text { color: var(--danger); }
 .cd-runs { display: flex; flex-direction: column; gap: 4px; padding: 12px 12px 0; }
 .cd-run { display: flex; gap: 8px; align-items: center; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
@@ -536,6 +655,7 @@ export class CausalDiagnosisTabs {
     this.context = context;
     this.experiment = null;
     this.selectedRun = null;
+    this.runCount = 0;
     this.runsSignature = '';
     this.panels = {
       experiment: element('div', 'cd-panel'),
@@ -544,6 +664,9 @@ export class CausalDiagnosisTabs {
       diagnosis: element('div', 'cd-panel'),
       neems: element('div', 'cd-panel'),
     };
+    this.runAnswers = element('div');
+    this.generalAnswers = element('div');
+    this.panels.experiment.append(this.runAnswers, this.generalAnswers);
   }
 
   /**
@@ -599,32 +722,39 @@ export class CausalDiagnosisTabs {
       this.document('probability_tree.json'),
       this.document('causal_graph.json'),
     ]);
-    if (experiment) this.panels.experiment.replaceChildren(experimentView(experiment));
+    if (experiment) this.generalAnswers.replaceChildren(experimentView(experiment));
     if (tree) this.panels.tree.replaceChildren(treeView(tree));
     if (graph) this.panels.graph.replaceChildren(graphView(graph));
   }
 
   /**
-   * Show the runs, the selected one's NEEM and the diagnosis of the newest finished
-   * run, or of the selected one.
+   * Show the runs: the causal answers about the selected run, or else the newest one,
+   * running or not; its diagnosis and its NEEM, or else the newest finished run's. A
+   * run that starts is shown instead of the one selected before.
    */
   async showRuns() {
     const index = await this.document('runs/index.json');
     const runs = index?.runs ?? [];
+    if (runs.length > this.runCount) this.selectedRun = null;
+    this.runCount = runs.length;
     const signature = JSON.stringify(runs) + this.selectedRun;
     if (signature === this.runsSignature) return;
     this.runsSignature = signature;
     const finished = runs.filter((run) => run.state === 'finished');
     const shown = runs.find((run) => run.run === this.selectedRun) ?? finished[finished.length - 1] ?? null;
+    const select = (run) => {
+      this.selectedRun = run;
+      this.showRuns();
+    };
+    const current = runs.find((run) => run.run === this.selectedRun) ?? runs[runs.length - 1] ?? null;
+    const answers = current ? await this.document(`runs/${current.run}/answers.json`) : null;
+    this.runAnswers.replaceChildren(runAnswersView(answers, runs, select));
     const diagnosis = shown && shown.state === 'finished' ? await this.document(`runs/${shown.run}/diagnosis.json`) : null;
     this.panels.diagnosis.replaceChildren(diagnosisView(shown, diagnosis));
     const neems = element('div');
     neems.append(heading('NEEMs', 'One narrative per run: what was tried, what happened step by step, and what came of it.'));
     neems.firstChild.style.padding = '12px 12px 0';
-    neems.append(runList(runs, shown?.run ?? null, (run) => {
-      this.selectedRun = run;
-      this.showRuns();
-    }));
+    neems.append(runList(runs, shown?.run ?? null, select));
     if (shown && shown.state === 'finished') {
       const neem = await this.document(`runs/${shown.run}/neem.json`);
       if (neem) neems.append(neemView(neem, this.url(`files/${this.experiment}/runs/${shown.run}/video.mp4`), (bundle) => this.replay(bundle)));

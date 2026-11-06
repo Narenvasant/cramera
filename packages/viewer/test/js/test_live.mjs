@@ -140,6 +140,28 @@ test('states apply only once the scene is shown, newest first, never an older on
   assert.deepEqual(calls.filter(([kind]) => kind === 'state'), [['state', 3], ['state', 5]]);
 });
 
+test('a publisher that comes back with the same scene has its states counted afresh', async () => {
+  let answering = true;
+  const sequence = [40, 41, 1, 2];
+  const { client } = fakeClient({
+    [LiveRoute.INFO]: () => (answering ? INFO : new Error('refused')),
+    [LiveRoute.STATE]: () => ({ [LiveStateKey.SEQUENCE_NUMBER]: sequence.shift() }),
+  });
+  const { calls, listener } = recordingListener();
+  const session = new LiveSession(client, new ManualTimers(), new EventBus(), listener);
+  await session.pollInfo();
+  session.sceneShown();
+  await session.pollState();
+  await session.pollState();
+  answering = false;
+  await session.pollInfo();
+  answering = true;
+  await session.pollInfo();
+  await session.pollState();
+  await session.pollState();
+  assert.deepEqual(calls.filter(([kind]) => kind === 'state'), [['state', 40], ['state', 41], ['state', 1], ['state', 2]]);
+});
+
 test('a slow answer is not overtaken by a second request to the same route', async () => {
   let release;
   const slow = new Promise((resolve) => { release = resolve; });
