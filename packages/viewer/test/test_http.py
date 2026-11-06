@@ -4,6 +4,7 @@ Routing, the origin policy and the server.
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import urllib.error
@@ -350,6 +351,19 @@ def test_the_server_answers_over_a_socket_and_stops(answerer):
         assert refused.value.code == HTTPStatus.METHOD_NOT_ALLOWED
     assert server.server is None
     server.stop()
+
+
+def test_a_kept_alive_connection_is_closed_when_the_server_stops(answerer):
+    server = HttpServer(answerer=answerer).start()
+    connection = http.client.HTTPConnection("127.0.0.1", server.bound_port())
+    connection.request(HttpMethod.GET, ViewerRoute.INFO, headers=LOCAL_HOST)
+    connection.getresponse().read()
+
+    server.stop()
+
+    with pytest.raises(ConnectionError):
+        connection.request(HttpMethod.GET, ViewerRoute.INFO, headers=LOCAL_HOST)
+        connection.getresponse().read()
 
 
 def test_the_server_releases_its_routes_once_it_stopped_serving(answerer):

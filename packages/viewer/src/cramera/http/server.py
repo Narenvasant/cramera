@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
-from typing_extensions import Callable, List, Optional, Self, Tuple, Type
+from typing_extensions import Callable, List, Optional, Self, Set, Tuple, Type
 
 from cramera.exceptions import ViewerError
 from cramera.http.addresses import (
@@ -171,8 +171,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 class ViewerHttpServer(ThreadingHTTPServer):
     """
-    A threading HTTP server whose socket family follows its host, and for which a client
-    that closes its connection before the answer is written is no error.
+    A threading HTTP server whose socket family follows its host, for which a client
+    that closes its connection before the answer is written is no error, and which can
+    close the connections its clients keep open.
     """
 
     daemon_threads = True
@@ -183,7 +184,36 @@ class ViewerHttpServer(ThreadingHTTPServer):
         :param handler: Answers the requests.
         """
         self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
+        self.open_connections: Set[socket.socket] = set()
+        self.open_connections_lock = threading.Lock()
         super().__init__(address, handler)
+
+    def process_request(
+        self, request: socket.socket, client_address: Tuple[str, int]
+    ) -> None:
+        with self.open_connections_lock:
+            self.open_connections.add(request)
+        super().process_request(request, client_address)
+
+    def shutdown_request(self, request: socket.socket) -> None:
+        with self.open_connections_lock:
+            self.open_connections.discard(request)
+        super().shutdown_request(request)
+
+    def close_open_connections(self) -> None:
+        """
+        Close every connection a client keeps open, so that its next request fails
+        instead of being answered by a server that stopped.
+        """
+        with self.open_connections_lock:
+            connections = [
+                connection
+                for connection in self.open_connections
+                if connection.fileno() != -1
+            ]
+            self.open_connections.clear()
+        for connection in connections:
+            connection.shutdown(socket.SHUT_RDWR)
 
     def handle_error(self, request: object, client_address: Tuple[str, int]) -> None:
         """
@@ -249,13 +279,14 @@ class HttpServer:
 
     def stop(self) -> None:
         """
-        Stop serving, close the socket, wait for the serving thread and call
-        :attr:`on_stop`.
+        Stop serving, close the socket and the connections clients keep open, wait for
+        the serving thread and call :attr:`on_stop`.
         """
         if self.server is None:
             return
         self.server.shutdown()
         self.server.server_close()
+        self.server.close_open_connections()
         self.thread.join()
         self.server = None
         self.thread = None
